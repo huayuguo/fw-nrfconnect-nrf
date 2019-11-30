@@ -15,6 +15,7 @@
 
 #include <net/cloud.h>
 #include "env_sensors.h"
+#include "motion.h"
 #include "light_sensor.h"
 
 #ifdef __cplusplus
@@ -51,6 +52,14 @@ enum cloud_channel {
 	CLOUD_CHANNEL_DEVICE_INFO,
 	/** The RBG IR light levels on the device. */
 	CLOUD_CHANNEL_LIGHT_SENSOR,
+	/** The red light level on the device. */
+	CLOUD_CHANNEL_LIGHT_RED,
+	/** The green light level on the device. */
+	CLOUD_CHANNEL_LIGHT_GREEN,
+	/** The blue light level on the device. */
+	CLOUD_CHANNEL_LIGHT_BLUE,
+	/** The IR light level on the device. */
+	CLOUD_CHANNEL_LIGHT_IR,
 };
 
 #define CLOUD_CHANNEL_STR_GPS "GPS"
@@ -94,11 +103,11 @@ enum cloud_cmd_recipient {
 	CLOUD_RCPT_MOTION,
 	CLOUD_RCPT_UI,
 	CLOUD_RCPT_MODEM_INFO,
+	CLOUD_RCPT_LIGHT,
 };
 
 enum cloud_cmd_type {
 	CLOUD_CMD_ENABLE,
-	CLOUD_CMD_DISABLE,
 	CLOUD_CMD_THRESHOLD_HIGH,
 	CLOUD_CMD_THRESHOLD_LOW,
 	CLOUD_CMD_READ,
@@ -113,13 +122,20 @@ enum cloud_cmd_type {
 	CLOUD_CMD_PLAY_NOTE,
 };
 
+enum cloud_cmd_state {
+	CLOUD_CMD_STATE_UNDEFINED = -1,
+	CLOUD_CMD_STATE_FALSE = 0,
+	CLOUD_CMD_STATE_TRUE,
+};
+
 struct cloud_command {
 	enum cloud_cmd_group group; /* The group the decoded command belongs to. */
 	enum cloud_cmd_recipient recipient; /* The command's recipient module. */
 	enum cloud_channel channel; /* The command's desired channel. */
 	enum cloud_cmd_type type; /* The command type, the desired action. */
 	double value; /* The value to be written to the recipient/channel. */
-	bool state; /* The truth value to be written to the recipient/channel. */
+	/* The truth value to be written to the recipient/channel. */
+	enum cloud_cmd_state state;
 };
 
 typedef void (*cloud_cmd_cb_t)(struct cloud_command *cmd);
@@ -181,11 +197,25 @@ static inline void cloud_release_data(struct cloud_msg *data)
 int cloud_encode_env_sensors_data(const env_sensor_data_t *sensor_data,
 				  struct cloud_msg *output);
 
+int cloud_encode_motion_data(const motion_data_t *motion_data,
+				  struct cloud_msg *output);
+
 #if CONFIG_LIGHT_SENSOR
 int cloud_encode_light_sensor_data(const struct light_sensor_data *sensor_data,
 				   struct cloud_msg *output);
 #endif /* CONFIG_LIGHT_SENSOR */
 
+
+/**
+ * @brief Checks if data could be sent to the cloud based on config.
+ *
+ * @param channel The cloud channel type..
+ * @param value Current data value for channel.
+ *
+ * @return true If the data should be sent to the cloud.
+ */
+bool cloud_is_send_allowed(const enum cloud_channel channel,
+			   const double value);
 /**
  * @}
  */

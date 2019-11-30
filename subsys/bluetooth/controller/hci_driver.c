@@ -79,13 +79,15 @@ void blectlr_assertion_handler(const char *const file, const u32_t line)
 #ifdef CONFIG_BT_CTLR_ASSERT_HANDLER
 	bt_ctlr_assert_handle(file, line);
 #else
-	BT_ERR("BleCtlr ASSERT: %s, %d", file, line);
+	BT_ERR("BleCtlr ASSERT: %s, %d", log_strdup(file), line);
 	k_oops();
 #endif
 }
 
 static int cmd_handle(struct net_buf *cmd)
 {
+	BT_DBG("");
+
 	int errcode = MULTITHREADING_LOCK_ACQUIRE();
 
 	if (!errcode) {
@@ -104,6 +106,8 @@ static int cmd_handle(struct net_buf *cmd)
 #if defined(CONFIG_BT_CONN)
 static int acl_handle(struct net_buf *acl)
 {
+	BT_DBG("");
+
 	int errcode = MULTITHREADING_LOCK_ACQUIRE();
 
 	if (!errcode) {
@@ -125,7 +129,7 @@ static int hci_driver_send(struct net_buf *buf)
 	int err;
 	u8_t type;
 
-	BT_DBG("Enter");
+	BT_DBG("");
 
 	if (!buf->len) {
 		BT_DBG("Empty HCI packet");
@@ -136,12 +140,10 @@ static int hci_driver_send(struct net_buf *buf)
 	switch (type) {
 #if defined(CONFIG_BT_CONN)
 	case BT_BUF_ACL_OUT:
-		BT_DBG("ACL_OUT");
 		err = acl_handle(buf);
 		break;
 #endif          /* CONFIG_BT_CONN */
 	case BT_BUF_CMD:
-		BT_DBG("CMD");
 		err = cmd_handle(buf);
 		break;
 	default:
@@ -153,29 +155,38 @@ static int hci_driver_send(struct net_buf *buf)
 		net_buf_unref(buf);
 	}
 
-	BT_DBG("Exit");
+	BT_DBG("Exit: %d", err);
 	return err;
 }
+
+#ifndef bt_acl_flag_pb
+/* Temporary defines, missing from hci.h */
+#define bt_acl_flags_pb(h)		((h) >> 12 & BIT_MASK(2))
+#define bt_acl_flags_bc(h)		((h) >> 14 & BIT_MASK(2))
+#endif /* bt_acl_flag_pb */
 
 static void data_packet_process(u8_t *hci_buf)
 {
 	struct net_buf *data_buf = bt_buf_get_rx(BT_BUF_ACL_IN, K_FOREVER);
+	struct bt_hci_acl_hdr *hdr = (void *)hci_buf;
+	u16_t hf, handle, len;
+	u8_t pb, bc;
 
 	if (!data_buf) {
 		BT_ERR("No data buffer available");
 		return;
 	}
 
-	u16_t handle = hci_buf[0] | (hci_buf[1] & 0xF) << 8;
-	u16_t data_length = hci_buf[2] | hci_buf[3] << 8;
-	u8_t pb_flag = (hci_buf[1] >> 4) & 0x3;
-	u8_t bc_flag = (hci_buf[1] >> 6) & 0x3;
+	len = sys_le16_to_cpu(hdr->len);
+	hf = sys_le16_to_cpu(hdr->handle);
+	handle = bt_acl_handle(hf);
+	pb = bt_acl_flags_pb(hf);
+	bc = bt_acl_flags_bc(hf);
 
-	BT_DBG("Data: Handle(%02x), PB(%01d), "
-	       "BC(%01d), Length(%02x)",
-	       handle, pb_flag, bc_flag, data_length);
+	BT_DBG("Data: handle (0x%02x), PB(%01d), BC(%01d), len(%u)", handle,
+	       pb, bc, len);
 
-	net_buf_add_mem(data_buf, &hci_buf[0], data_length + 4);
+	net_buf_add_mem(data_buf, &hci_buf[0], len + sizeof(*hdr));
 	bt_recv(data_buf);
 }
 
@@ -196,22 +207,30 @@ static void event_packet_process(u8_t *hci_buf)
 		return;
 	}
 
-	if (hdr->evt == 0x3E) {
-		BT_DBG("LE Meta Event: subevent code "
-		       "(%02x), length (%d)",
-		       hci_buf[2], hci_buf[1]);
-	} else {
-		u16_t opcode = sys_get_be16(&hci_buf[2]);
+	if (hdr->evt == BT_HCI_EVT_LE_META_EVENT) {
+		struct bt_hci_evt_le_meta_event *me = (void *)&hci_buf[2];
 
-		BT_DBG("Event: event code (0x%02x), "
-		       "length (%d), "
-		       "num_complete (%d), "
-		       "opcode (%d)"
-		       "status (%d)\n",
-		       hci_buf[0], hci_buf[1], hci_buf[2], opcode, hci_buf[5]);
+		BT_DBG("LE Meta Event (0x%02x), len (%u)",
+		       me->subevent, hdr->len);
+	} else if (hdr->evt == BT_HCI_EVT_CMD_COMPLETE) {
+		struct bt_hci_evt_cmd_complete *cc = (void *)&hci_buf[2];
+		struct bt_hci_evt_cc_status *ccs = (void *)&hci_buf[5];
+		u16_t opcode = sys_le16_to_cpu(cc->opcode);
+
+		BT_DBG("Command Complete (0x%04x) status: 0x%02x,"
+		       " ncmd: %u, len %u",
+		       opcode, ccs->status, cc->ncmd, hdr->len);
+	} else if (hdr->evt == BT_HCI_EVT_CMD_STATUS) {
+		struct bt_hci_evt_cmd_status *cs = (void *)&hci_buf[2];
+		u16_t opcode = sys_le16_to_cpu(cs->opcode);
+
+		BT_DBG("Command Status (0x%04x) status: 0x%02x",
+		       opcode, cs->status);
+	} else {
+		BT_DBG("Event (0x%02x) len %u", hdr->evt, hdr->len);
 	}
 
-	net_buf_add_mem(evt_buf, &hci_buf[0], hdr->len + 2);
+	net_buf_add_mem(evt_buf, &hci_buf[0], hdr->len + sizeof(*hdr));
 	if (bt_hci_evt_is_prio(hdr->evt)) {
 		bt_recv_prio(evt_buf);
 	} else {
@@ -235,7 +254,6 @@ static bool fetch_and_process_hci_evt(uint8_t *p_hci_buffer)
 
 	event_packet_process(p_hci_buffer);
 	return true;
-
 }
 
 static bool fetch_and_process_acl_data(uint8_t *p_hci_buffer)
@@ -441,7 +459,8 @@ static int ble_enable(void)
 		return required_memory;
 	}
 
-	cfg.event_length.event_length_us = 7500;
+	cfg.event_length.event_length_us =
+		CONFIG_BLECTRL_MAX_CONN_EVENT_LEN_DEFAULT;
 	required_memory =
 		ble_controller_cfg_set(BLE_CONTROLLER_DEFAULT_RESOURCE_CFG_TAG,
 				       BLE_CONTROLLER_CFG_TYPE_EVENT_LENGTH,
@@ -486,6 +505,42 @@ static int ble_enable(void)
 	return 0;
 }
 
+ISR_DIRECT_DECLARE(ble_controller_radio_isr_wrapper)
+{
+	ble_controller_RADIO_IRQHandler();
+
+	ISR_DIRECT_PM();
+
+	/* We may need to reschedule in case a radio timeslot callback
+	 * accesses zephyr primitives.
+	 */
+	return 1;
+}
+
+ISR_DIRECT_DECLARE(ble_controller_rtc0_isr_wrapper)
+{
+	ble_controller_RTC0_IRQHandler();
+
+	ISR_DIRECT_PM();
+
+	/* No need for rescheduling, because the interrupt handler
+	 * does not access zephyr primitives.
+	 */
+	return 0;
+}
+
+ISR_DIRECT_DECLARE(ble_controller_timer0_isr_wrapper)
+{
+	ble_controller_TIMER0_IRQHandler();
+
+	ISR_DIRECT_PM();
+
+	/* We may need to reschedule in case a radio timeslot callback
+	 * accesses zephyr primitives.
+	 */
+	return 1;
+}
+
 static int hci_driver_init(struct device *unused)
 {
 	ARG_UNUSED(unused);
@@ -501,11 +556,11 @@ static int hci_driver_init(struct device *unused)
 	}
 
 	IRQ_DIRECT_CONNECT(RADIO_IRQn, BLE_CONTROLLER_IRQ_PRIO_HIGH,
-			   ble_controller_RADIO_IRQHandler, IRQ_ZERO_LATENCY);
+			   ble_controller_radio_isr_wrapper, IRQ_ZERO_LATENCY);
 	IRQ_DIRECT_CONNECT(RTC0_IRQn, BLE_CONTROLLER_IRQ_PRIO_HIGH,
-			   ble_controller_RTC0_IRQHandler, IRQ_ZERO_LATENCY);
+			   ble_controller_rtc0_isr_wrapper, IRQ_ZERO_LATENCY);
 	IRQ_DIRECT_CONNECT(TIMER0_IRQn, BLE_CONTROLLER_IRQ_PRIO_HIGH,
-			   ble_controller_TIMER0_IRQHandler, IRQ_ZERO_LATENCY);
+			   ble_controller_timer0_isr_wrapper, IRQ_ZERO_LATENCY);
 
 	IRQ_CONNECT(SWI5_IRQn, BLE_CONTROLLER_IRQ_PRIO_LOW,
 		    SIGNALLING_Handler, NULL, 0);

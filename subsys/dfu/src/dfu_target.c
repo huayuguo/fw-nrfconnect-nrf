@@ -54,7 +54,7 @@ int dfu_target_init(int img_type, size_t file_size)
 {
 	const struct dfu_target *new_target = NULL;
 
-	if (IS_ENABLED(CONFIG_BOOTLOADER_MCUBOOT) &&
+	if (IS_ENABLED(CONFIG_DFU_TARGET_MCUBOOT) &&
 	    img_type == DFU_TARGET_IMAGE_TYPE_MCUBOOT) {
 		new_target = &dfu_target_mcuboot;
 	} else if (IS_ENABLED(CONFIG_DFU_TARGET_MODEM) &&
@@ -68,10 +68,12 @@ int dfu_target_init(int img_type, size_t file_size)
 	}
 
 	/* The user is re-initializing with an previously aborted target.
-	 * Avoid re-initializing to ensure that the download can continue where
-	 * it left off.
+	 * Avoid re-initializing generally to ensure that the download can
+	 * continue where it left off. Re-initializing is required for modem
+	 * upgrades to re-open the DFU socket that is closed on abort.
 	 */
-	if (new_target == current_target) {
+	if (new_target == current_target
+	   && img_type != DFU_TARGET_IMAGE_TYPE_MODEM_DELTA) {
 		return 0;
 	}
 
@@ -107,14 +109,13 @@ int dfu_target_done(bool successful)
 	}
 
 	err = current_target->done(successful);
-
-	if (successful) {
-		current_target = NULL;
-	}
-
 	if (err != 0) {
 		LOG_ERR("Unable to clean up dfu_target");
 		return err;
+	}
+
+	if (successful) {
+		current_target = NULL;
 	}
 
 	return 0;

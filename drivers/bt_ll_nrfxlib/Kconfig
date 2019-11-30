@@ -4,6 +4,6 @@
 # SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
 #
 
-rsource "clock_control/Kconfig"
 rsource "entropy/Kconfig"
 rsource "flash/Kconfig"
+rsource "clock_control/Kconfig"

@@ -5,4 +5,4 @@
 #
 
 zephyr_library()
-zephyr_library_sources(clock_control_ll_nrfxlib.c)
+zephyr_library_sources(clock_control_nrfxlib.c)

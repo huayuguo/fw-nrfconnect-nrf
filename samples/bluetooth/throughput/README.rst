@@ -51,7 +51,7 @@ By default, the following connection parameter values are used:
 Changing connection parameter values
 ====================================
 
-You can experiment with different connection parameter values by reconfiguring the values using menuconfig and then compiling and flashing the sample again to at least one of the boards.
+You can experiment with different connection parameter values by reconfiguring the values using menuconfig and then compiling and programming the sample again to at least one of the boards.
 
 .. note::
    In a *Bluetooth* Low Energy connection, the different devices negotiate the connection parameters that are used.
@@ -66,6 +66,13 @@ Requirements
 ************
 
 * Two of the following development boards:
+
+  * |nRF5340DK|
+
+    If you use this board, you must add the following options to the network sample configuration::
+
+       CONFIG_BT_CTLR_TX_BUFFER_SIZE=251
+       CONFIG_BT_CTLR_DATA_LENGTH_MAX=251
 
   * nRF52840 Development Kit board (PCA10056)
   * nRF52 Development Kit board (PCA10040)

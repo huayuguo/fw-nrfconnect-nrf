@@ -78,7 +78,7 @@ static void response_handler(void *context, char *response)
 
 static void cmd_send(struct k_work *work)
 {
-	char              str[19];
+	char              str[25];
 	enum at_cmd_state state;
 	int               err;
 
@@ -101,11 +101,11 @@ static void cmd_send(struct k_work *work)
 		write_uart_string(ERROR_STR);
 		break;
 	case AT_CMD_ERROR_CMS:
-		sprintf(str, "+CMS: %d\r\n", err);
+		sprintf(str, "+CMS ERROR: %d\r\n", err);
 		write_uart_string(str);
 		break;
 	case AT_CMD_ERROR_CME:
-		sprintf(str, "+CME: %d\r\n", err);
+		sprintf(str, "+CME ERROR: %d\r\n", err);
 		write_uart_string(str);
 		break;
 	default:
